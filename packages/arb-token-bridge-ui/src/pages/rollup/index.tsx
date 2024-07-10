@@ -1,129 +1,134 @@
-import { AssetTable } from '../../components/common/Assets'
 import CenteredTabs from '../../components/common/Tabs'
 import ResponsiveAppBar from '../../components/common/navbar'
-import { BigNumber, ethers  } from 'ethers'
-import { GetContractTypeFromFactory } from '@arbitrum/sdk/dist/lib/abi/common'
-import { useState , useEffect} from 'react'
-import   NexusAbiJson  from '../../NexusLibrary.json'
- import { getNexusReward , getNexusBalance } from '../../util/Contract'
-import { getClient } from '../../util/client'
-import { gql } from '@apollo/client'
-import { ValidatorData } from '../../types'
-import { Console } from 'console'
+import { useState, useEffect } from 'react'
+import Fade from '@mui/material/Fade'
+import useSWR from 'swr'
+import { TabsProps } from '../../types'
+import { Loader } from '../../components/common/atoms/Loader'
+import StatCard from '../../components/common/StatCard'
+import {
+  fetchValidatorData,
+  fetchClusterData,
+  fetchNodeOperatorData
+} from '../../util/graphQL/fetch'
+import { getNexusContractParams } from '../../util/Contract'
+import { SWRConfig } from 'swr'
+import cluster from 'cluster'
 
+type FetcherArgs = [string, RequestInit?]
+// const fetcher = (url:string) => fetch(url).then(r => r.json())
+const fetcher = (...args: FetcherArgs) => {
+  const [url, init = {}] = args // Destructure based on tuple type
+  return fetch(url, init).then(res => res.json())
+}
 
-const validatorQuery = gql`
-  query Now {
-    validators {
-      clusterId
-      id
-      rollup
-      status
-    }
+export function RollupDashboard() {
+  const { data: validatorData, error: validatorError } = useSWR(
+    '/api/dashboard/validator-data',
+    fetcher
+  )
+  const { data: nodeData, error: nodeError } = useSWR(
+    '/api/dashboard/node-data',
+    fetcher
+  )
+  const { data: clusterData, error: clusterError } = useSWR(
+    '/api/dashboard/cluster-data',
+    fetcher
+  )
+  const { data: nexusParams, error: nexusError } = useSWR(
+    '/api/dashboard/nexus-params',
+    fetcher
+  )
+
+  const [windowHeight, setWindowHeight] = useState<number>(700)
+  const [fadeIn, setFadeIn] = useState(false)
+
+  useEffect(() => {
+    const handleResize = () => setWindowHeight(window.innerHeight)
+    handleResize()
+    setWindowHeight(window.innerHeight)
+
+    setFadeIn(true)
+
+    window.addEventListener('resize', handleResize)
+
+    return () => window.removeEventListener('resize', handleResize)
+  }, [])
+
+  // loading state
+  if (!validatorData || !nodeData || !clusterData || !nexusParams)
+    return (
+      <>
+        <div className="h-12 w-full lg:h-16" />
+        <div className="fixed inset-0 m-auto h-[44px] w-[44px]">
+          <Loader size="large" color="white" />
+        </div>
+      </>
+    )
+
+  // Error State
+  if (validatorError || nexusError || nodeError || clusterError)
+    return <div>Failed to load</div>
+
+  const stakedAmount = (validatorData?.validators?.length * 32 || 0).toString()
+  const ethBridged = parseFloat(nexusParams?.balanceEth || '0').toFixed(3)
+  const rewardsEarned = parseFloat(nexusParams?.rewardEth || '0').toFixed(3)
+
+  const tabData: TabsProps = {
+    validatorData,
+    nodeData,
+    clusterData
   }
-`
-
-export default function Index() {
-  const [total, setTotal] = useState<string>("");
-  const [heightVariable, setHeight] = useState(700)
-  // const [transactionCount, setTransactionCount] = useState<number>(0)
-  const [transactionCount, setTransactionCount] = useState<string>("")
-
-  const [stakedAmount, setStakedAmount] = useState<number>(0)
-
-  useEffect(  () => {
-
-    async function fetchData() {
-      try {
-        const { data } = await getClient.query({ query: validatorQuery })
-         const stakedAmount = data.validators.length * 32
-         const balance:any = await getNexusBalance()
-         const reward:any = await getNexusReward();
-        console.log("rewards:", reward)
-        const intbalance:number = parseFloat(balance)
-        const intreward:number = parseFloat(reward)
-        //  total amount: balance(bridge contract) + eth staked - rewards
-         const totalBalance:any = ( intbalance + stakedAmount) -  intreward
-         const trimmedtotalBalance= parseFloat(balance).toFixed(3);
-         const trimmedReward = parseFloat(reward).toFixed(3)
-         setTotal(trimmedReward)
-         setStakedAmount(stakedAmount)
-         setTransactionCount(trimmedtotalBalance)
-
-
-      } catch (error) {
-        console.error('Error fetching data:', error)
-
-      }
-    }
-
-    async function fetchTransactionData() {
-      try {
-        const response = await fetch('https://testnet.explorer.nexusnetwork.live/api/v2/stats/charts/transactions');
-        if (response.ok) {
-          const data = await response.json();
-          // Sum up the tx_count values from each object in the chart_data array
-          const totalCount = data.chart_data.reduce((acc:any, curr:any) => acc + curr.tx_count, 0);
-
-          // setTransactionCount(totalCount);
-        } else {
-          console.error('Failed to fetch transaction data:', response.statusText);
-        }
-      } catch (error) {
-        console.error('Error fetching transaction data:', error);
-      }
-    }
-    const updateHeight = () => {
-      const heightValue = window.innerHeight;
-      setHeight(heightValue)
-      }
-      updateHeight()
-
-
-    // fetchReward();
-    fetchTransactionData()
-    fetchData()
-
-    window.addEventListener('resize', updateHeight );
-
-    return () => {
-      window.removeEventListener('resize', updateHeight );
-    };
-  }, []);
 
   return (
-    <div id="backgroundImage" className="">
-      <ResponsiveAppBar wallet={false} marginBelow={'mb-12'} />
-      <div className="    flex        backdrop-blur-2xl w-full  flex-col     py-2   sm:px-16" style={{ height: heightVariable > 700 ? heightVariable : '100%' }}>
-        <>
-          <div className="mb-4 mt-4 flex w-full items-center justify-center space-x-8 text-[#CDEBFF]">
-            <div className=" flex h-full  w-3/12 flex-col items-center justify-center rounded-xl  border-2 border-[#1377BB] px-2 py-4 text-center shadow-md   shadow-[#1377BB]">
-              <h1 className=" lg:text-xl xl:text-2xl">ETH Bridged</h1>
-              <h1 className=" font-light lg:text-lg xl:text-xl"> {transactionCount !== null ? `${transactionCount} ETH` : 'Loading amount...'}</h1>
+    <Fade in={fadeIn} timeout={1000}>
+      <div id="backgroundImage" className="">
+        <ResponsiveAppBar wallet={false} marginBelow={'mb-12'} />
+        <div
+          className=" flex  w-full flex-col  py-2   backdrop-blur-2xl   sm:px-16"
+          style={{ height: windowHeight > 900 ? windowHeight : '100%' }}
+        >
+          <>
+            <div className="mb-4 mt-4 flex w-full items-center justify-center space-x-8 text-[#CDEBFF]">
+              <StatCard title="ETH Bridged" value={ethBridged} />
+              <StatCard title="ETH Staked" value={stakedAmount} />
+              <StatCard title="Rewards Earned" value={rewardsEarned} />
             </div>
-
-            <div className=" flex h-full w-3/12 flex-col items-center justify-center rounded-xl  border-2 border-[#1377BB] px-2 py-4 text-center shadow-md   shadow-[#1377BB]">
-              <h1 className="lg:text-xl xl:text-2xl ">ETH Staked</h1>
-              <h1 className=" font-light lg:text-lg xl:text-xl"> {stakedAmount !== null ? `${stakedAmount} ETH` : 'Loading amount...'}</h1>
+            <div className="  flex    items-center justify-center ">
+              <CenteredTabs data={tabData} />
             </div>
-
-            <div className=" flex h-full w-3/12 flex-col items-center  justify-center rounded-xl  border-2 border-[#1377BB] px-2 py-4 text-center shadow-md   shadow-[#1377BB]">
-              <h1 className=" lg:text-xl xl:text-2xl">
-                Rewards Earned
-              </h1>
-              <h1 className="font-light lg:text-lg xl:text-xl"> {total !== null ? (
-        <p>{total} ETH</p>
-      ) : (
-        <p>Loading...</p>
-      )}</h1>
-            </div>
-          </div>
-
-          <div className="  flex  flex-row items-center justify-around ">
-            <CenteredTabs />
-          </div>
-        </>
+          </>
+        </div>
       </div>
-    </div>
+    </Fade>
   )
+}
+export default function Page({ fallback }: { fallback: any }) {
+  return (
+    <SWRConfig value={{ fallback }}>
+      <RollupDashboard />
+    </SWRConfig>
+  )
+}
+
+export async function getStaticProps() {
+  const [validatorData, nexusParams, nodeData, clusterData] = await Promise.all(
+    [
+      fetchValidatorData(),
+      getNexusContractParams(),
+      fetchNodeOperatorData(),
+      fetchClusterData()
+    ]
+  )
+
+  return {
+    props: {
+      fallback: {
+        '/api/dashboard/validator-data': validatorData,
+        '/api/dashboard/nexus-params': nexusParams,
+        '/api/dashboard/node-data': nodeData,
+        '/api/dashboard/cluster-data': clusterData
+      }
+    }
+  }
 }
